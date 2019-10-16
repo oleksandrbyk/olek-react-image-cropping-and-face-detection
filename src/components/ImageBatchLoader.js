@@ -1,7 +1,5 @@
 import React from "react";
-import Container from 'react-bootstrap/Container'
-import Row from 'react-bootstrap/Row'
-import Col from 'react-bootstrap/Col'
+import { Container, Row, Col, Spinner } from 'react-bootstrap'
 import './ImageBatchLoader.css'
 import ReactCrop from 'react-image-crop';
 import "react-image-crop/dist/ReactCrop.css";
@@ -15,12 +13,10 @@ class ImageBatchLoader extends React.Component {
       files: [],
       src: [],
       croppedImages: [],
+      isDetectedFace: true,
       currentFileIndex: -1,
       resolution: 1,
-      crop: {
-        width: 250,
-        height: 250
-      }
+      crop: []
     };
   }
 
@@ -37,42 +33,54 @@ class ImageBatchLoader extends React.Component {
     this.setState({
       files: files,
       currentFileIndex: 0,
+      isDetectedFace: false,
       src: Array.from(files).map(file => URL.createObjectURL(file))
     })
   }
 
   setCrop = newCrop => {
-    const { crop } = this.state
-    !_.isEqual(newCrop, crop) && this.setState({
-      crop: Object.assign({}, crop, newCrop)
-    })
+    const { currentFileIndex } = this.state
+    let { crop } = this.state
+    let currentCrop = crop[currentFileIndex]
+    if(!_.isEqual(newCrop, currentCrop)) {
+      crop[currentFileIndex] = Object.assign({}, currentCrop, newCrop)
+      this.setState({ crop })
+    }
   }
 
   onImageLoaded = async image => {
+    const { croppedImages, currentFileIndex } = this.state
     this.imageRef = image;
-    const { naturalWidth, naturalHeight, width, height } = image
-    await faceapi.nets.ssdMobilenetv1.loadFromUri('/models')
-    const { box } = await faceapi.detectSingleFace(image)
-    // In general, rateX is equal to rateY
-    const rateX = width / naturalWidth, rateY = height / naturalHeight;
-    this.setState({
-      crop: {
+    if (croppedImages[currentFileIndex]) {
+      this.setState({ isDetectedFace: true })
+    } else {
+      const { naturalWidth, naturalHeight, width, height } = image
+      await faceapi.nets.ssdMobilenetv1.loadFromUri('/models')
+      const { box } = await faceapi.detectSingleFace(image)
+      // In general, rateX is equal to rateY
+      const rateX = width / naturalWidth, rateY = height / naturalHeight;
+
+      this.setState({ isDetectedFace: true })
+      this.setCrop({
         x: box._x * rateX,
         y: box._y * rateY,
         width: box._width * rateX,
         height: box._height * rateY
-      }
-    })
+      })
+    }
   }
 
-  onCropComplete = async crop => {
-    if (this.imageRef && crop.width && crop.height) {
+  saveCroppedImage = async () => {
+    const { crop, currentFileIndex } = this.state
+    const _crop = crop[currentFileIndex]
+
+    if (this.imageRef && _crop.width && _crop.height) {
       const croppedImage = await this.getCroppedImg(
         this.imageRef,
-        crop,
+        _crop,
         "newFile.jpeg"
       );
-      let { croppedImages, currentFileIndex } = this.state
+      let { croppedImages } = this.state
       croppedImages[currentFileIndex] = croppedImage
       this.setState({ croppedImages })
     }
@@ -107,14 +115,12 @@ class ImageBatchLoader extends React.Component {
           return;
         }
         blob.name = fileName;
-        window.URL.revokeObjectURL(this.fileUrl);
+        // window.URL.revokeObjectURL(this.fileUrl);
         this.fileUrl = window.URL.createObjectURL(blob);
         resolve(this.fileUrl);
       }, "image/jpeg", resolution * 1);
     });
   }
-
-  saveCroppedImage = () => {}
 
   render() {
     const {
@@ -122,6 +128,7 @@ class ImageBatchLoader extends React.Component {
       src,
       currentFileIndex,
       croppedImages,
+      isDetectedFace,
       crop
     } = this.state;
 
@@ -154,7 +161,7 @@ class ImageBatchLoader extends React.Component {
             <input
               type="number"
               className="form-control"
-              value={crop.width}
+              value={crop[currentFileIndex] ? crop[currentFileIndex].width : 0}
               onChange={e => { this.setCrop({ width: e.currentTarget.value - 0 }) }}
             />
           </Col>
@@ -163,7 +170,7 @@ class ImageBatchLoader extends React.Component {
             <input
               type="number"
               className="form-control"
-              value={crop.height}
+              value={crop[currentFileIndex] ? crop[currentFileIndex].height : 0}
               onChange={e => { this.setCrop({ height: e.currentTarget.value - 0 }) }}
             />
           </Col>
@@ -187,7 +194,7 @@ class ImageBatchLoader extends React.Component {
         {/* Begin - "Single Crop" Button */}
         <Row>
           <Col>
-            <input type="button" className="btn btn-primary btn-block" value="Single Crop" onClick={() => this.saveCroppedImage()} />
+            <input type="button" className="btn btn-primary btn-block" value="Single Crop" onClick={this.saveCroppedImage} />
           </Col>
         </Row>
         {/* End - "Single Crop" Button */}
@@ -200,10 +207,7 @@ class ImageBatchLoader extends React.Component {
               onClick={() => {
                 this.setState({
                   currentFileIndex: currentFileIndex - 1,
-                  crop: {
-                    width: 250,
-                    height: 250
-                  }
+                  isDetectedFace: false,
                 });
               }}
               disabled={currentFileIndex <= 0}
@@ -216,10 +220,7 @@ class ImageBatchLoader extends React.Component {
               onClick={() => {
                 this.setState({
                   currentFileIndex: currentFileIndex + 1,
-                  crop: {
-                    width: 250,
-                    height: 250
-                  }
+                  isDetectedFace: false,
                 });
               }}
               disabled={currentFileIndex === files.length - 1}
@@ -231,12 +232,11 @@ class ImageBatchLoader extends React.Component {
         <Row>
           <Col>
             <ReactCrop
-              className="react-image-crop"
+              disabled={!isDetectedFace}
               imageStyle={{ width: "100%", height: "100%" }}
               src={src[currentFileIndex]}
-              crop={crop}
+              crop={crop[currentFileIndex]}
               onImageLoaded={this.onImageLoaded}
-              onComplete={this.onCropComplete}
               onChange={this.setCrop}
             />
           </Col>
